@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "seed": "node scripts/seed.mjs"
+    "seed": "node scripts/seed.mjs",
+    "make-test-csv": "node scripts/make-test-csv.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.104.4",
