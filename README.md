@@ -165,3 +165,196 @@ When `VITE_API_URL` is set, `src/lib/api.ts` automatically dispatches requests t
 | `/api/alerts/{id}/status` | `PATCH` | `{ success: boolean }` | Update incident status |
 | `/api/analyze/csv` | `POST` | `PredictionResult[]` | Batch inference on raw CSV |
 | `/api/model/metrics` | `GET` | `ModelMetrics` | Confusion matrix, F1, SHAP weights |
+
+---
+
+## Backend — FastAPI + ML Engine
+
+### Backend Project Structure
+
+```text
+app/
+├── agents/
+│   ├── chat_agent.py     # ReAct chat agent with streaming & fallback
+│   ├── fallbacks.py      # Rule-based triage heuristics (no LLM required)
+│   ├── state.py          # LangGraph TypedDict state definitions
+│   ├── tools.py          # Safe ORM tools: query_flows, summarize_window, knowledge
+│   └── triage.py         # LangGraph triage workflow (classify → enrich → explain → mitigate → score → persist)
+├── api/
+│   ├── deps.py           # Shared FastAPI dependencies (DB session, predictor)
+│   └── routes/
+│       ├── alerts.py     # GET /alerts, PATCH status, POST /{id}/analyze (LangGraph triage)
+│       ├── chat.py       # POST /chat (SSE token stream via chat agent)
+│       ├── flows.py      # GET /flows, GET /flows/{id}
+│       ├── model.py      # GET /model/metrics
+│       ├── predict.py    # POST /predict, POST /predict/batch (CSV upload)
+│       ├── stats.py      # GET /stats/overview, /timeseries, /top-sources, /attack-distribution
+│       └── stream.py     # GET /stream/traffic (SSE live replay)
+├── core/
+│   ├── config.py         # Pydantic Settings (DATABASE_URL, GROQ_API_KEY, etc.)
+│   └── logging.py        # Structured JSON logging
+├── db/
+│   ├── base.py           # Imports all models for Alembic autogenerate
+│   └── session.py        # Async SQLAlchemy engine (PostgreSQL/Neon + SQLite dev)
+├── ml/
+│   └── predictor.py      # Singleton predictor: load artifacts, validate columns, infer
+├── models/               # SQLAlchemy ORM models
+│   ├── alert.py
+│   ├── ai_report.py
+│   ├── base.py
+│   ├── chat.py
+│   ├── flow.py
+│   └── model_run.py
+├── schemas/              # Pydantic v2 request/response schemas
+│   ├── agent.py
+│   ├── alert.py
+│   ├── chat.py
+│   ├── flow.py
+│   ├── model.py
+│   ├── predict.py
+│   └── stats.py
+└── main.py               # FastAPI app entrypoint, lifespan, CORS, health check
+
+ml/
+└── train.py              # Model training script (RandomForest + XGBoost, CICIDS2017-style)
+
+artifacts/                # Auto-generated ML artifacts (git-ignored)
+├── model.joblib
+├── scaler.joblib
+├── label_encoder.joblib
+├── features.json
+├── metrics.json
+└── test_samples.csv
+
+alembic/
+├── env.py
+├── script.py.mako
+└── versions/
+    └── 001_initial_schema.py
+
+tests/
+├── conftest.py           # Async SQLite test DB + httpx AsyncClient fixtures
+├── test_predictor.py     # Predictor unit tests
+├── test_batch_endpoint.py # Integration tests: /predict, /predict/batch, /health
+└── test_agent.py         # Agent tests: triage fallback, chat fallback, tools
+```
+
+---
+
+### Backend Quick-Start
+
+#### 1. Create and Activate Virtual Environment
+
+```bash
+python -m venv .venv
+
+# Windows
+.venv\Scripts\activate
+
+# Linux / macOS
+source .venv/bin/activate
+```
+
+#### 2. Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+#### 3. Configure Environment
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and set at minimum:
+
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | Neon pooled URL (`postgresql://...?sslmode=require`) or `sqlite+aiosqlite:///./tidewatch.db` |
+| `GROQ_API_KEY` | [console.groq.com](https://console.groq.com/keys) — optional, rule-based fallbacks activate if unset |
+| `ALLOWED_ORIGINS` | Comma-separated CORS origins (e.g. `http://localhost:5173`) |
+
+#### 4. Train the ML Model
+
+Generates `artifacts/model.joblib`, `scaler.joblib`, `label_encoder.joblib`, `features.json`, `metrics.json`, and `test_samples.csv`.
+
+```bash
+python ml/train.py
+```
+
+This runs automatically at API startup if `artifacts/model.joblib` is missing.
+
+#### 5. Apply Database Migrations
+
+```bash
+alembic upgrade head
+```
+
+#### 6. Start the API Server
+
+```bash
+uvicorn app.main:app --reload --port 8000
+```
+
+Interactive API docs: `http://localhost:8000/docs`
+
+---
+
+### API Endpoints Reference
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/health` | Health check: DB ping, ML engine status |
+| `POST` | `/api/v1/predict` | Single flow classification |
+| `POST` | `/api/v1/predict/batch` | CSV file batch classification |
+| `GET` | `/api/v1/flows` | Paginated flow records |
+| `GET` | `/api/v1/flows/{id}` | Single flow detail |
+| `GET` | `/api/v1/alerts` | Filterable alert list |
+| `PATCH` | `/api/v1/alerts/{id}/status` | Update alert status |
+| `POST` | `/api/v1/alerts/{id}/analyze` | Trigger LangGraph triage |
+| `GET` | `/api/v1/stats/overview` | Aggregate KPIs |
+| `GET` | `/api/v1/stats/timeseries` | Traffic time series |
+| `GET` | `/api/v1/stats/top-sources` | Top attack source IPs |
+| `GET` | `/api/v1/stats/attack-distribution` | Attack class proportions |
+| `GET` | `/api/v1/model/metrics` | Confusion matrix, F1, feature importances |
+| `GET` | `/api/v1/stream/traffic` | SSE: live flow replay |
+| `POST` | `/api/v1/chat` | SSE: streaming chat with ReAct agent |
+
+---
+
+### Running Tests
+
+```bash
+pytest tests/ -v
+```
+
+Tests run entirely against an in-memory SQLite database and do not require a live database or Groq API key. The ML predictor is invoked from locally generated artifacts.
+
+---
+
+### Docker
+
+```bash
+# Build and run
+docker compose up --build
+
+# API available at http://localhost:8000
+# Frontend available at http://localhost:5173
+```
+
+The `Dockerfile` automatically runs `python ml/train.py` during build so the image ships with pre-generated artifacts. `alembic upgrade head` runs at container startup before Uvicorn is launched.
+
+---
+
+### Neon Postgres Setup
+
+1. Create a free project at [neon.tech](https://neon.tech)
+2. Go to **Connection Details** → choose **Pooled connection**
+3. Copy the connection string and set it as `DATABASE_URL` in `.env`:
+
+```env
+DATABASE_URL=postgresql+asyncpg://user:pass@ep-xxxx.us-east-2.aws.neon.tech/neondb?sslmode=require
+```
+
+> **Note**: Use `postgresql+asyncpg://` (not `postgres://`) for SQLAlchemy async compatibility.

@@ -1,0 +1,215 @@
+{
+  "modelName": "Tidewatch XGBoost Classifier",
+  "version": "v2.4.0",
+  "trainedOn": "CICIDS2017 Dataset",
+  "overallAccuracy": 1.0,
+  "macroF1": 1.0,
+  "weightedF1": 1.0,
+  "averageInferenceTimeMs": 3.8,
+  "falsePositiveRate": 0.0003,
+  "classes": [
+    {
+      "className": "BENIGN",
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1Score": 1.0,
+      "support": 1822
+    },
+    {
+      "className": "DoS",
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1Score": 1.0,
+      "support": 148
+    },
+    {
+      "className": "DDoS",
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1Score": 1.0,
+      "support": 434
+    },
+    {
+      "className": "PortScan",
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1Score": 1.0,
+      "support": 295
+    },
+    {
+      "className": "BruteForce",
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1Score": 1.0,
+      "support": 301
+    }
+  ],
+  "features": [
+    {
+      "feature": "Bwd Packet Length Mean",
+      "importance": 0.2777999937534332
+    },
+    {
+      "feature": "Total Length of Bwd Packets",
+      "importance": 0.2345999926328659
+    },
+    {
+      "feature": "Total Backward Packets",
+      "importance": 0.22439999878406525
+    },
+    {
+      "feature": "Total Fwd Packets",
+      "importance": 0.11089999973773956
+    },
+    {
+      "feature": "Flow Bytes/s",
+      "importance": 0.11010000109672546
+    },
+    {
+      "feature": "Fwd Packet Length Mean",
+      "importance": 0.01759999990463257
+    },
+    {
+      "feature": "Destination Port",
+      "importance": 0.009999999776482582
+    },
+    {
+      "feature": "Flow IAT Mean",
+      "importance": 0.005200000014156103
+    },
+    {
+      "feature": "Flow Duration",
+      "importance": 0.004100000020116568
+    },
+    {
+      "feature": "Flow IAT Max",
+      "importance": 0.002300000051036477
+    },
+    {
+      "feature": "Packet Length Mean",
+      "importance": 0.0019000000320374966
+    },
+    {
+      "feature": "Bwd Packet Length Std",
+      "importance": 0.0007999999797903001
+    },
+    {
+      "feature": "Total Length of Fwd Packets",
+      "importance": 0.00019999999494757503
+    },
+    {
+      "feature": "Flow Packets/s",
+      "importance": 0.00019999999494757503
+    },
+    {
+      "feature": "Flow IAT Std",
+      "importance": 0.00019999999494757503
+    },
+    {
+      "feature": "Fwd Packets/s",
+      "importance": 9.999999747378752e-05
+    },
+    {
+      "feature": "Fwd IAT Mean",
+      "importance": 0.0
+    },
+    {
+      "feature": "Bwd IAT Mean",
+      "importance": 0.0
+    },
+    {
+      "feature": "Fwd Header Length",
+      "importance": 0.0
+    },
+    {
+      "feature": "Bwd Header Length",
+      "importance": 0.0
+    },
+    {
+      "feature": "Bwd Packets/s",
+      "importance": 0.0
+    },
+    {
+      "feature": "Packet Length Std",
+      "importance": 0.0
+    },
+    {
+      "feature": "SYN Flag Count",
+      "importance": 0.0
+    },
+    {
+      "feature": "RST Flag Count",
+      "importance": 0.0
+    },
+    {
+      "feature": "PSH Flag Count",
+      "importance": 0.0
+    },
+    {
+      "feature": "ACK Flag Count",
+      "importance": 0.0
+    },
+    {
+      "feature": "URG Flag Count",
+      "importance": 0.0
+    },
+    {
+      "feature": "Init_Win_bytes_forward",
+      "importance": 0.0
+    },
+    {
+      "feature": "Init_Win_bytes_backward",
+      "importance": 0.0
+    },
+    {
+      "feature": "min_seg_size_forward",
+      "importance": 0.0
+    }
+  ],
+  "confusionMatrix": {
+    "labels": [
+      "BENIGN",
+      "DoS",
+      "DDoS",
+      "PortScan",
+      "BruteForce"
+    ],
+    "matrix": [
+      [
+        1822,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        148,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        434,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        295,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        301
+      ]
+    ]
+  }
+}
