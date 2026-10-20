@@ -1,6 +1,8 @@
 import React, { useState } from 'react'
 import { NavLink, Link, useLocation } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { useSimulation } from '@/hooks/useSimulation'
+import { api } from '@/lib/api'
 import {
   Shield,
   Activity,
@@ -20,6 +22,24 @@ export const Navbar: React.FC = () => {
     useSimulation()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const location = useLocation()
+
+  // Fetch LLM provider health and status
+  const { data: llmStatus } = useQuery({
+    queryKey: ['llmStatus'],
+    queryFn: () => api.getLlmStatus(),
+    refetchInterval: 20000,
+    staleTime: 10000,
+  })
+
+  const handleToggleRunning = async () => {
+    const nextAction = isRunning ? 'stop' : 'start'
+    try {
+      await api.controlStream(nextAction)
+    } catch (e) {
+      console.warn('POST /stream/control failed:', e)
+    }
+    toggleRunning()
+  }
 
   const navItems = [
     { label: 'Overview', to: '/' },
@@ -77,8 +97,28 @@ export const Navbar: React.FC = () => {
           </nav>
         </div>
 
-        {/* Right side: Simulation controls */}
+        {/* Right side: Simulation controls & LLM Status Badge */}
         <div className="hidden sm:flex items-center gap-3">
+          {/* LLM Status Badge */}
+          <div
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#FAFBF8] border border-[#E2EBE5] text-[11px] hover:border-[#10B981] transition-colors cursor-help"
+            title={`Active LLM: ${llmStatus?.provider || 'Groq'} (${llmStatus?.model || 'llama-3.3-70b-versatile'}) — ${
+              llmStatus?.healthy ? 'Connected & Healthy' : 'Degraded / Offline'
+            }`}
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                llmStatus?.healthy ? 'bg-[#10B981] shadow-xs' : 'bg-red-500 shadow-xs'
+              }`}
+            />
+            <span className="font-mono text-[#0F3D2E] font-medium uppercase">
+              {llmStatus?.provider || 'LLM'}
+            </span>
+            <span className="text-[9px] text-[#526D61] font-mono border-l border-[#E2EBE5] pl-1.5">
+              {llmStatus?.model?.split('/')?.pop()?.slice(0, 14) || 'AI'}
+            </span>
+          </div>
+
           {/* Live stream status indicator */}
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#FAFBF8] border border-[#E2EBE5] text-[11px]">
             <span
@@ -94,13 +134,13 @@ export const Navbar: React.FC = () => {
           {/* Simulation Toggle & Controls */}
           <div className="flex items-center rounded-lg border border-[#E2EBE5] bg-[#FAFBF8] p-1 gap-1">
             <button
-              onClick={toggleRunning}
+              onClick={handleToggleRunning}
               className={`p-1.5 rounded-md transition-colors flex items-center gap-1 text-xs font-medium ${
                 isRunning
                   ? 'bg-white text-[#0F3D2E] shadow-2xs border border-[#D5E3DC]'
                   : 'bg-emerald-50 text-[#0F3D2E] border border-emerald-200'
               }`}
-              title={isRunning ? 'Pause simulated flow telemetry' : 'Resume flow telemetry'}
+              title={isRunning ? 'Pause stream (POST /stream/control)' : 'Resume stream (POST /stream/control)'}
               aria-label={isRunning ? 'Pause simulation' : 'Play simulation'}
             >
               {isRunning ? (

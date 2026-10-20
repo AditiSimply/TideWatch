@@ -8,6 +8,7 @@ import {
   Tooltip,
   CartesianGrid,
 } from 'recharts'
+import { ChartSkeleton } from '@/components/common/Skeleton'
 import type { TrafficDataPoint } from '@/types'
 
 interface TrafficLineChartProps {
@@ -19,11 +20,7 @@ export const TrafficLineChart: React.FC<TrafficLineChartProps> = ({ data, isLoad
   const [timeRange, setTimeRange] = useState<'15m' | '1h' | '6h' | '24h'>('1h')
 
   if (isLoading) {
-    return (
-      <div className="editorial-card p-6 h-[380px] flex items-center justify-center">
-        <span className="text-xs text-[#526D61] animate-pulse">Loading traffic telemetry...</span>
-      </div>
-    )
+    return <ChartSkeleton />
   }
 
   return (

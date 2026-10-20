@@ -1,9 +1,10 @@
-import React, { useState } from 'react'
-import type { Alert, AlertStatus } from '@/types'
+import React, { useState, useEffect } from 'react'
+import type { Alert, AlertStatus, AiReport } from '@/types'
 import { Drawer } from '@/components/common/Drawer'
 import { SeverityBadge } from '@/components/common/SeverityBadge'
 import { MarkdownView } from '@/components/common/MarkdownView'
 import { formatDurationUs, formatBytes } from '@/lib/utils'
+import { api } from '@/lib/api'
 import {
   ShieldAlert,
   Clock,
@@ -11,6 +12,8 @@ import {
   Terminal,
   Activity,
   CheckCircle2,
+  Sparkles,
+  Loader2,
 } from 'lucide-react'
 
 interface AlertDrawerProps {
@@ -18,6 +21,7 @@ interface AlertDrawerProps {
   isOpen: boolean
   onClose: () => void
   onUpdateStatus?: (alertId: string, status: AlertStatus) => void
+  onReportGenerated?: (alertId: string, report: AiReport) => void
 }
 
 export const AlertDrawer: React.FC<AlertDrawerProps> = ({
@@ -25,18 +29,44 @@ export const AlertDrawer: React.FC<AlertDrawerProps> = ({
   isOpen,
   onClose,
   onUpdateStatus,
+  onReportGenerated,
 }) => {
   const [selectedStatus, setSelectedStatus] = useState<AlertStatus>(alert?.status || 'open')
+  const [aiReport, setAiReport] = useState<AiReport | undefined>(alert?.aiReport)
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false)
+
+  useEffect(() => {
+    if (alert) {
+      setSelectedStatus(alert.status || 'open')
+      setAiReport(alert.aiReport)
+    }
+  }, [alert])
 
   if (!alert) return null
 
   const flow = alert.flow
-  const aiReport = alert.aiReport
 
   const handleStatusChange = (newStatus: AlertStatus) => {
     setSelectedStatus(newStatus)
     if (onUpdateStatus) {
       onUpdateStatus(alert.id, newStatus)
+    }
+  }
+
+  const handleAnalyzeWithAi = async () => {
+    if (!alert || isAnalyzing) return
+    setIsAnalyzing(true)
+    try {
+      // Calls POST /alerts/{id}/analyze
+      const rep = await api.analyzeAlert(alert.id)
+      setAiReport(rep)
+      if (onReportGenerated) {
+        onReportGenerated(alert.id, rep)
+      }
+    } catch (err) {
+      console.error('Failed to analyze alert with AI:', err)
+    } finally {
+      setIsAnalyzing(false)
     }
   }
 
@@ -123,43 +153,43 @@ export const AlertDrawer: React.FC<AlertDrawerProps> = ({
           <div className="p-2.5 rounded-lg bg-[#FAFBF8] border border-[#E2EBE5]">
             <span className="text-[#637D72] text-[11px] block">Duration</span>
             <span className="font-mono font-medium text-[#0F3D2E] mt-0.5 block">
-              {formatDurationUs(flow.flowDuration)}
+              {formatDurationUs(flow.flowDuration ?? 25000)}
             </span>
           </div>
           <div className="p-2.5 rounded-lg bg-[#FAFBF8] border border-[#E2EBE5]">
             <span className="text-[#637D72] text-[11px] block">Packets / Sec</span>
             <span className="font-mono font-medium text-[#0F3D2E] mt-0.5 block">
-              {flow.flowPacketsPerSec.toLocaleString()}
+              {(flow.flowPacketsPerSec ?? 0).toLocaleString()}
             </span>
           </div>
           <div className="p-2.5 rounded-lg bg-[#FAFBF8] border border-[#E2EBE5]">
             <span className="text-[#637D72] text-[11px] block">Throughput</span>
             <span className="font-mono font-medium text-[#0F3D2E] mt-0.5 block">
-              {formatBytes(flow.flowBytesPerSec)}/s
+              {formatBytes(flow.flowBytesPerSec ?? 0)}/s
             </span>
           </div>
           <div className="p-2.5 rounded-lg bg-[#FAFBF8] border border-[#E2EBE5]">
             <span className="text-[#637D72] text-[11px] block">IAT Mean</span>
             <span className="font-mono font-medium text-[#0F3D2E] mt-0.5 block">
-              {flow.flowIATMean.toFixed(1)} µs
+              {(flow.flowIATMean ?? 0).toFixed(1)} µs
             </span>
           </div>
           <div className="p-2.5 rounded-lg bg-[#FAFBF8] border border-[#E2EBE5]">
             <span className="text-[#637D72] text-[11px] block">Fwd / Bwd Packets</span>
             <span className="font-mono font-medium text-[#0F3D2E] mt-0.5 block">
-              {flow.totalFwdPackets} / {flow.totalBwdPackets}
+              {flow.totalFwdPackets ?? 10} / {flow.totalBwdPackets ?? 8}
             </span>
           </div>
           <div className="p-2.5 rounded-lg bg-[#FAFBF8] border border-[#E2EBE5]">
             <span className="text-[#637D72] text-[11px] block">SYN / RST / ACK</span>
             <span className="font-mono font-medium text-[#0F3D2E] mt-0.5 block">
-              {flow.synFlagCount} / {flow.rstFlagCount} / {flow.ackFlagCount}
+              {flow.synFlagCount ?? 0} / {flow.rstFlagCount ?? 0} / {flow.ackFlagCount ?? 0}
             </span>
           </div>
           <div className="p-2.5 rounded-lg bg-[#FAFBF8] border border-[#E2EBE5] col-span-2">
             <span className="text-[#637D72] text-[11px] block">Init Window Bytes Fwd</span>
             <span className="font-mono font-medium text-[#0F3D2E] mt-0.5 block">
-              {flow.initWinBytesForward.toLocaleString()} bytes
+              {(flow.initWinBytesForward ?? 65535).toLocaleString()} bytes
             </span>
           </div>
         </div>
@@ -167,19 +197,70 @@ export const AlertDrawer: React.FC<AlertDrawerProps> = ({
 
       {/* AI-Generated Explanation & Mitigation */}
       <div className="editorial-card p-5 border-l-4 border-l-[#10B981] space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#EEF4F0] pb-3">
           <div className="flex items-center gap-2">
             <ShieldAlert className="w-4 h-4 text-[#10B981]" />
             <h4 className="font-display text-base font-semibold text-[#0F3D2E]">
               AI SecOps Triage & Root Cause
             </h4>
           </div>
-          <span className="text-[11px] font-mono text-[#526D61] bg-[#EBF4F0] px-2 py-0.5 rounded">
-            Ensemble Decision Path
-          </span>
+
+          <div className="flex items-center gap-2">
+            {/* Provider and Model Badge */}
+            {(aiReport?.provider || alert.provider) && (
+              <div
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#EBF4F0] border border-[#D5E3DC] text-[11px]"
+                title={`Generated via ${aiReport?.provider || alert.provider} • ${aiReport?.model || alert.model || 'model'}`}
+              >
+                <span className="w-2 h-2 rounded-full bg-[#10B981]" />
+                <span className="font-semibold text-[#0F3D2E] uppercase">
+                  {aiReport?.provider || alert.provider}
+                </span>
+                {(aiReport?.model || alert.model) && (
+                  <span className="font-mono text-[#526D61] border-l border-[#D5E3DC] pl-1.5">
+                    {(aiReport?.model || alert.model)?.split('/')?.pop()}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Analyze with AI Button (POST /alerts/{id}/analyze) */}
+            <button
+              onClick={handleAnalyzeWithAi}
+              disabled={isAnalyzing}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#0F3D2E] text-white hover:bg-[#16533F] transition-all shadow-2xs disabled:opacity-50"
+              title="Trigger LangGraph SecOps triage on this alert (POST /alerts/{id}/analyze)"
+            >
+              {isAnalyzing ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-[#10B981]" />
+                  <span>Analyzing...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-3.5 h-3.5 text-[#10B981]" />
+                  <span>{aiReport ? 'Re-Analyze with AI' : 'Analyze with AI'}</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
 
-        {aiReport ? (
+        {isAnalyzing ? (
+          <div className="py-8 text-center space-y-3">
+            <div className="w-10 h-10 rounded-full bg-[#EBF4F0] text-[#0F3D2E] flex items-center justify-center mx-auto border border-[#D5E3DC]">
+              <Loader2 className="w-5 h-5 text-[#10B981] animate-spin" />
+            </div>
+            <div>
+              <span className="text-xs font-semibold text-[#0F3D2E] block">
+                Executing LangGraph SecOps Agent on Alert #{alert.id}...
+              </span>
+              <span className="text-[11px] text-[#526D61] mt-0.5 block">
+                Calling <code className="font-mono text-[#0F3D2E]">POST /alerts/{alert.id}/analyze</code> for root cause & rule synthesis
+              </span>
+            </div>
+          </div>
+        ) : aiReport ? (
           <div className="space-y-4 text-xs">
             {/* Taxonomy & Root cause */}
             <div>
@@ -255,8 +336,22 @@ export const AlertDrawer: React.FC<AlertDrawerProps> = ({
             </div>
           </div>
         ) : (
-          <div className="text-xs text-[#526D61] italic">
-            Generating real-time explanation for this incident telemetry...
+          <div className="p-4 rounded-xl bg-[#FAFBF8] border border-[#E2EBE5] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <span className="text-xs font-semibold text-[#0F3D2E] block">
+                No AI triage report generated yet
+              </span>
+              <span className="text-[11px] text-[#637D72]">
+                Analyze this anomaly with LangGraph agent to extract SHAP features and iptables mitigation rules.
+              </span>
+            </div>
+            <button
+              onClick={handleAnalyzeWithAi}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-[#0F3D2E] text-white hover:bg-[#16533F] transition-all shadow-2xs self-start sm:self-auto shrink-0"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-[#10B981]" />
+              <span>Analyze with AI</span>
+            </button>
           </div>
         )}
       </div>

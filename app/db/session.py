@@ -1,5 +1,5 @@
 from collections.abc import AsyncGenerator
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -16,12 +16,14 @@ engine_kwargs = {
 
 raw_url = settings.async_database_url
 
-# Handle PostgreSQL specific connection args (e.g., Neon Postgres sslmode=require)
+# Handle PostgreSQL specific connection args (e.g., Neon Postgres SSL)
 if "postgresql" in raw_url:
-    # If using pooled connection string on Neon
     parsed = urlparse(raw_url)
-    qs = parse_qs(parsed.query)
-    if "sslmode" in qs and qs["sslmode"][0] == "require":
+    host = parsed.hostname or ""
+    # Neon and most managed Postgres require TLS. asyncpg uses `ssl` (not sslmode).
+    if settings.DATABASE_URL.lower().startswith("postgres") and (
+        "neon.tech" in host or "sslmode=require" in settings.DATABASE_URL
+    ):
         connect_args["ssl"] = "require"
 
     engine_kwargs["pool_size"] = settings.DB_POOL_SIZE

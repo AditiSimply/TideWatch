@@ -76,7 +76,7 @@ export const DashboardPage: React.FC = () => {
           <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-[#D5E3DC] text-[#405B50] shadow-2xs">
             <Radio className="w-3.5 h-3.5 text-[#10B981] animate-pulse" />
             <span className="font-medium">
-              Feed: {connectionType === 'websocket' ? 'WebSocket' : connectionType === 'sse' ? 'SSE' : 'Simulated'}
+              Feed: {connectionType === 'sse' ? 'SSE (Live)' : 'Simulated'}
             </span>
           </span>
         </div>

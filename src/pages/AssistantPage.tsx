@@ -27,8 +27,31 @@ I can analyze tree-split decisions, explain SHAP feature attributions on live or
   },
 ]
 
+const STORAGE_SESSION_KEY = 'tidewatch_chat_session_id'
+
 export const AssistantPage: React.FC = () => {
-  const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES)
+  const [sessionId, setSessionId] = useState<string>(() => {
+    let id = localStorage.getItem(STORAGE_SESSION_KEY)
+    if (!id) {
+      id = `tw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      localStorage.setItem(STORAGE_SESSION_KEY, id)
+    }
+    return id
+  })
+
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    const saved = localStorage.getItem(`tw_msgs_${sessionId}`)
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved)
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed
+      } catch {
+        // fallback
+      }
+    }
+    return INITIAL_MESSAGES
+  })
+
   const [input, setInput] = useState<string>('')
   const [isStreaming, setIsStreaming] = useState<boolean>(false)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
@@ -39,7 +62,18 @@ export const AssistantPage: React.FC = () => {
 
   useEffect(() => {
     scrollToBottom()
-  }, [messages])
+    // Save messages for this session
+    if (messages.length > 0) {
+      localStorage.setItem(`tw_msgs_${sessionId}`, JSON.stringify(messages))
+    }
+  }, [messages, sessionId])
+
+  const handleResetSession = () => {
+    const newId = `tw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    localStorage.setItem(STORAGE_SESSION_KEY, newId)
+    setSessionId(newId)
+    setMessages(INITIAL_MESSAGES)
+  }
 
   const handleSendMessage = async (textToSend?: string) => {
     const prompt = (textToSend || input).trim()
@@ -68,13 +102,17 @@ export const AssistantPage: React.FC = () => {
     setIsStreaming(true)
 
     try {
-      await api.askAssistant(prompt, (chunk) => {
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantMsgId ? { ...msg, content: chunk } : msg
+      await api.askAssistant(
+        prompt,
+        (chunk) => {
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantMsgId ? { ...msg, content: chunk } : msg
+            )
           )
-        )
-      })
+        },
+        sessionId
+      )
     } catch (err) {
       console.error('Failed to get assistant response:', err)
       setMessages((prev) =>
@@ -125,13 +163,25 @@ export const AssistantPage: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={() => setMessages(INITIAL_MESSAGES)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[#526D61] hover:text-[#0F3D2E] hover:bg-[#EBF3EF] transition-colors border border-[#E2EBE5] self-start sm:self-auto"
-        >
-          <RotateCcw className="w-3.5 h-3.5" />
-          <span>Reset dialogue</span>
-        </button>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          {/* Session ID pill */}
+          <div
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#FAFBF8] border border-[#E2EBE5] text-[11px] font-mono text-[#526D61]"
+            title={`Persistent Session ID: ${sessionId}`}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-[#10B981]" />
+            <span>ID: {sessionId.slice(0, 14)}...</span>
+          </div>
+
+          <button
+            onClick={handleResetSession}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[#526D61] hover:text-[#0F3D2E] hover:bg-[#EBF3EF] transition-colors border border-[#E2EBE5]"
+            title="Start a new session and clear conversation memory"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>New Session</span>
+          </button>
+        </div>
       </div>
 
       {/* Suggested Prompts Pills */}

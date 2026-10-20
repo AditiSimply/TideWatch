@@ -1,5 +1,6 @@
 import React from 'react'
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts'
+import { DonutSkeleton } from '@/components/common/Skeleton'
 import type { AttackDistribution } from '@/types'
 
 interface AttackTypeDonutProps {
@@ -11,11 +12,7 @@ const PALETTE = ['#DC2626', '#EA580C', '#D97706', '#92400E', '#059669', '#0F3D2E
 
 export const AttackTypeDonut: React.FC<AttackTypeDonutProps> = ({ data, isLoading }) => {
   if (isLoading) {
-    return (
-      <div className="editorial-card p-6 h-[380px] flex items-center justify-center">
-        <span className="text-xs text-[#526D61] animate-pulse">Loading attack taxonomy...</span>
-      </div>
-    )
+    return <DonutSkeleton />
   }
 
   const total = data.reduce((acc, curr) => acc + curr.count, 0)

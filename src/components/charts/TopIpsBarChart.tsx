@@ -8,6 +8,7 @@ import {
   Tooltip,
   Cell,
 } from 'recharts'
+import { BarChartSkeleton } from '@/components/common/Skeleton'
 import type { TopIpMetric } from '@/types'
 
 interface TopIpsBarChartProps {
@@ -22,11 +23,7 @@ export const TopIpsBarChart: React.FC<TopIpsBarChartProps> = ({
   onSelectIp,
 }) => {
   if (isLoading) {
-    return (
-      <div className="editorial-card p-6 h-[340px] flex items-center justify-center">
-        <span className="text-xs text-[#526D61] animate-pulse">Loading adversary telemetry...</span>
-      </div>
-    )
+    return <BarChartSkeleton />
   }
 
   return (

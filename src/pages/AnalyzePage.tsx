@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { api } from '@/lib/api'
 import type { PredictionResult } from '@/types'
 import { SeverityBadge } from '@/components/common/SeverityBadge'
@@ -16,11 +16,26 @@ import {
   Play,
   RotateCcw,
   Sparkles,
+  AlertTriangle,
+  X,
+  Loader2,
+  FileText,
 } from 'lucide-react'
+
+interface SchemaErrorDetails {
+  title: string
+  message: string
+  missingFeatures?: string[]
+  unexpectedFeatures?: string[]
+  expectedCount?: number
+}
 
 export const AnalyzePage: React.FC = () => {
   const [isDragging, setIsDragging] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
+  const [isDownloadingSample, setIsDownloadingSample] = useState(false)
+  const [schemaError, setSchemaError] = useState<SchemaErrorDetails | null>(null)
   const [results, setResults] = useState<PredictionResult[] | null>(null)
   const [summary, setSummary] = useState<{ total: number; attacks: number; benign: number } | null>(null)
   const [fileName, setFileName] = useState<string>('')
@@ -28,18 +43,86 @@ export const AnalyzePage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState<string>('')
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const progressTimerRef = useRef<number | null>(null)
 
-  const processCsvText = async (text: string, name: string) => {
+  useEffect(() => {
+    return () => {
+      if (progressTimerRef.current) {
+        window.clearInterval(progressTimerRef.current)
+      }
+    }
+  }, [])
+
+  const startProgressSimulation = () => {
+    setUploadProgress(10)
+    if (progressTimerRef.current) window.clearInterval(progressTimerRef.current)
+    progressTimerRef.current = window.setInterval(() => {
+      setUploadProgress((prev) => {
+        if (prev >= 90) return prev
+        return prev + Math.floor(Math.random() * 15) + 5
+      })
+    }, 150)
+  }
+
+  const stopProgressSimulation = (success = true) => {
+    if (progressTimerRef.current) {
+      window.clearInterval(progressTimerRef.current)
+      progressTimerRef.current = null
+    }
+    setUploadProgress(success ? 100 : 0)
+  }
+
+  const processFile = async (file: File) => {
     setIsAnalyzing(true)
-    setFileName(name)
+    setSchemaError(null)
+    setFileName(file.name)
+    startProgressSimulation()
+
     try {
-      const res = await api.analyzeCsv(text)
+      // Multipart upload to /predict/batch
+      const res = await api.uploadCsvBatch(file, file.name)
+      stopProgressSimulation(true)
       setResults(res.results)
       setSummary(res.summary)
-    } catch (err) {
-      console.error('Failed to parse and analyze CSV:', err)
+    } catch (err: any) {
+      stopProgressSimulation(false)
+      console.error('Batch prediction failed:', err)
+
+      // Check for 422 Feature Schema Mismatch error envelope
+      const detail = err?.data?.detail || err?.data
+      if (err?.status === 422 || detail?.missing_features || detail?.error === 'Feature Schema Mismatch') {
+        const missing = Array.isArray(detail?.missing_features) ? detail.missing_features : []
+        const unexpected = Array.isArray(detail?.unexpected_features) ? detail.unexpected_features : []
+        setSchemaError({
+          title: detail?.error || 'Feature Schema Mismatch (HTTP 422)',
+          message:
+            detail?.message ||
+            'The uploaded CSV columns do not match the expected 78 CICIDS2017 features.',
+          missingFeatures: missing,
+          unexpectedFeatures: unexpected,
+          expectedCount: detail?.expected_features_count || 78,
+        })
+      } else {
+        setSchemaError({
+          title: 'Classification Request Failed',
+          message:
+            err?.message ||
+            'Failed to analyze CSV. Please ensure the backend is reachable and the format is valid.',
+        })
+      }
     } finally {
       setIsAnalyzing(false)
+    }
+  }
+
+  const handleDownloadSample = async () => {
+    setIsDownloadingSample(true)
+    try {
+      await api.downloadSampleCsv()
+    } catch (err) {
+      console.error('Failed to download sample CSV:', err)
+    } finally {
+      setIsDownloadingSample(false)
     }
   }
 
@@ -47,32 +130,20 @@ export const AnalyzePage: React.FC = () => {
     e.preventDefault()
     setIsDragging(false)
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      const file = e.dataTransfer.files[0]
-      const reader = new FileReader()
-      reader.onload = (event) => {
-        if (event.target?.result) {
-          processCsvText(event.target.result as string, file.name)
-        }
-      }
-      reader.readAsText(file)
+      processFile(e.dataTransfer.files[0])
     }
   }
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0]
-      const reader = new FileReader()
-      reader.onload = (event) => {
-        if (event.target?.result) {
-          processCsvText(event.target.result as string, file.name)
-        }
-      }
-      reader.readAsText(file)
+      processFile(e.target.files[0])
     }
   }
 
   const loadSample = (sampleText: string, sampleName: string) => {
-    processCsvText(sampleText, sampleName)
+    const blob = new Blob([sampleText], { type: 'text/csv' })
+    const file = new File([blob], sampleName, { type: 'text/csv' })
+    processFile(file)
   }
 
   const handleExportCsv = () => {
@@ -147,20 +218,127 @@ export const AnalyzePage: React.FC = () => {
           </p>
         </div>
 
-        {results && (
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          {/* Download Sample CSV Button (hits /predict/sample) */}
           <button
-            onClick={() => {
-              setResults(null)
-              setSummary(null)
-              setFileName('')
-            }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[#526D61] hover:text-[#0F3D2E] hover:bg-[#EBF3EF] transition-colors border border-[#E2EBE5] self-start sm:self-auto"
+            onClick={handleDownloadSample}
+            disabled={isDownloadingSample}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white text-[#0F3D2E] hover:bg-[#F2F7F4] border border-[#CBDAD1] transition-colors shadow-2xs disabled:opacity-50"
+            title="Download reference CICIDS2017 feature CSV template from /predict/sample"
           >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Reset file</span>
+            {isDownloadingSample ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-[#10B981]" />
+            ) : (
+              <Download className="w-3.5 h-3.5 text-[#10B981]" />
+            )}
+            <span>Download sample CSV</span>
           </button>
-        )}
+
+          {results && (
+            <button
+              onClick={() => {
+                setResults(null)
+                setSummary(null)
+                setFileName('')
+                setSchemaError(null)
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[#526D61] hover:text-[#0F3D2E] hover:bg-[#EBF3EF] transition-colors border border-[#E2EBE5]"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Reset file</span>
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* 422 Feature Schema Mismatch Error Banner */}
+      {schemaError && (
+        <div className="editorial-card p-5 border-l-4 border-l-[#DC2626] bg-[#FEF2F2]/60 space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2.5">
+              <div className="w-7 h-7 rounded-lg bg-red-100 text-[#DC2626] flex items-center justify-center shrink-0 mt-0.5">
+                <AlertTriangle className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="font-semibold text-sm text-[#991B1B]">{schemaError.title}</h4>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-red-100 text-[#991B1B] font-bold">
+                    HTTP 422
+                  </span>
+                </div>
+                <p className="text-xs text-[#7F1D1D] mt-1 leading-relaxed">
+                  {schemaError.message}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setSchemaError(null)}
+              className="p-1 rounded-md text-[#991B1B] hover:bg-red-100 transition-colors"
+              aria-label="Dismiss error"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Missing features pills */}
+          {schemaError.missingFeatures && schemaError.missingFeatures.length > 0 && (
+            <div className="pt-2 border-t border-red-200">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-[#991B1B] block mb-1.5">
+                Missing Required Features ({schemaError.missingFeatures.length}):
+              </span>
+              <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-1">
+                {schemaError.missingFeatures.slice(0, 24).map((feat) => (
+                  <span
+                    key={feat}
+                    className="text-[11px] font-mono px-2 py-0.5 rounded bg-white text-[#991B1B] border border-red-200"
+                  >
+                    {feat}
+                  </span>
+                ))}
+                {schemaError.missingFeatures.length > 24 && (
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-red-100 text-[#991B1B]">
+                    +{schemaError.missingFeatures.length - 24} more
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Unexpected extra features pills */}
+          {schemaError.unexpectedFeatures && schemaError.unexpectedFeatures.length > 0 && (
+            <div className="pt-2 border-t border-red-200">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-[#B45309] block mb-1.5">
+                Unexpected Extra Columns ({schemaError.unexpectedFeatures.length}):
+              </span>
+              <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
+                {schemaError.unexpectedFeatures.slice(0, 16).map((feat) => (
+                  <span
+                    key={feat}
+                    className="text-[11px] font-mono px-2 py-0.5 rounded bg-white text-[#B45309] border border-amber-200"
+                  >
+                    {feat}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Quick resolution action */}
+          <div className="pt-2 flex items-center justify-between">
+            <span className="text-[11px] text-[#7F1D1D]">
+              FastAPI backend requires all {schemaError.expectedCount || 78} standard CICIDS2017 header names.
+            </span>
+            <button
+              onClick={handleDownloadSample}
+              disabled={isDownloadingSample}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#0F3D2E] text-white hover:bg-[#16533F] transition-colors shadow-2xs"
+            >
+              <FileText className="w-3.5 h-3.5 text-[#10B981]" />
+              <span>Download Calibrated Sample CSV</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Drag & Drop Upload Zone or Quick Samples */}
       {!results && (
@@ -172,10 +350,12 @@ export const AnalyzePage: React.FC = () => {
             }}
             onDragLeave={() => setIsDragging(false)}
             onDrop={handleFileDrop}
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => !isAnalyzing && fileInputRef.current?.click()}
             className={`editorial-card p-12 text-center cursor-pointer border-2 border-dashed transition-all ${
               isDragging
                 ? 'border-[#10B981] bg-[#F2FBF6]'
+                : isAnalyzing
+                ? 'border-[#10B981] bg-white cursor-wait'
                 : 'border-[#CBDAD1] hover:border-[#10B981] bg-white'
             }`}
           >
@@ -186,28 +366,69 @@ export const AnalyzePage: React.FC = () => {
               className="hidden"
               onChange={handleFileSelect}
             />
-            <div className="w-12 h-12 rounded-full bg-[#EBF4F0] text-[#0F3D2E] flex items-center justify-center mx-auto mb-4 border border-[#D5E3DC]">
-              <UploadCloud className="w-6 h-6 text-[#10B981]" />
-            </div>
-            <h3 className="font-display text-lg font-semibold text-[#0F3D2E]">
-              {isAnalyzing ? 'Extracting features and classifying...' : 'Drop your CICIDS2017 CSV file here'}
-            </h3>
-            <p className="text-xs text-[#526D61] max-w-md mx-auto mt-1 mb-4 leading-relaxed">
-              Supports standard CICFlowMeter and Wireshark bidirectional flow exports. Zero packet payload required.
-            </p>
-            <span className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium bg-[#0F3D2E] text-white hover:bg-[#16533F] transition-colors shadow-2xs">
-              <FileSpreadsheet className="w-3.5 h-3.5 text-[#10B981]" />
-              Browse local file
-            </span>
+
+            {isAnalyzing ? (
+              <div className="max-w-md mx-auto space-y-4">
+                <div className="w-12 h-12 rounded-full bg-[#EBF4F0] text-[#0F3D2E] flex items-center justify-center mx-auto mb-2 border border-[#D5E3DC]">
+                  <Loader2 className="w-6 h-6 text-[#10B981] animate-spin" />
+                </div>
+                <div>
+                  <h3 className="font-display text-lg font-semibold text-[#0F3D2E]">
+                    Processing {fileName || 'Flow Telemetry'}...
+                  </h3>
+                  <p className="text-xs text-[#526D61] mt-1">
+                    Multipart streaming upload to <code className="font-mono text-[#0F3D2E]">POST /predict/batch</code>
+                  </p>
+                </div>
+
+                {/* Progress bar */}
+                <div className="w-full bg-[#E2EBE5] rounded-full h-2.5 overflow-hidden shadow-inner">
+                  <div
+                    className="bg-[#10B981] h-2.5 rounded-full transition-all duration-300 ease-out"
+                    style={{ width: `${uploadProgress}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-[11px] font-mono text-[#526D61]">
+                  <span>Standardizing features & XGBoost inference</span>
+                  <span>{uploadProgress}%</span>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="w-12 h-12 rounded-full bg-[#EBF4F0] text-[#0F3D2E] flex items-center justify-center mx-auto mb-4 border border-[#D5E3DC]">
+                  <UploadCloud className="w-6 h-6 text-[#10B981]" />
+                </div>
+                <h3 className="font-display text-lg font-semibold text-[#0F3D2E]">
+                  Drop your CICIDS2017 CSV file here
+                </h3>
+                <p className="text-xs text-[#526D61] max-w-md mx-auto mt-1 mb-4 leading-relaxed">
+                  Supports standard CICFlowMeter and Wireshark bidirectional flow exports. Evaluated via 78 standardized ML features.
+                </p>
+                <span className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium bg-[#0F3D2E] text-white hover:bg-[#16533F] transition-colors shadow-2xs">
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-[#10B981]" />
+                  Browse local file
+                </span>
+              </>
+            )}
           </div>
 
           {/* 1-Click Sample Datasets for instant testing */}
           <div className="editorial-card p-6">
-            <div className="flex items-center gap-2 mb-3">
-              <Sparkles className="w-4 h-4 text-[#10B981]" />
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-[#405B50]">
-                Or test with pre-calibrated sample captures
-              </h4>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-[#10B981]" />
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-[#405B50]">
+                  Or test with pre-calibrated sample captures
+                </h4>
+              </div>
+              <button
+                onClick={handleDownloadSample}
+                disabled={isDownloadingSample}
+                className="text-xs text-[#10B981] hover:text-[#0F3D2E] font-medium inline-flex items-center gap-1 self-start sm:self-auto"
+              >
+                <Download className="w-3 h-3" />
+                <span>Download Sample Template</span>
+              </button>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <button
@@ -394,10 +615,10 @@ export const AnalyzePage: React.FC = () => {
                           </span>
                         </td>
                         <td className="py-3 px-4 font-mono text-[#526D61]">
-                          {formatDurationUs(item.flow.flowDuration)}
+                          {formatDurationUs(item.flow.flowDuration ?? 25000)}
                         </td>
                         <td className="py-3 px-4 font-mono text-[#526D61]">
-                          {item.flow.flowPacketsPerSec.toLocaleString()} pkts/s
+                          {(item.flow.flowPacketsPerSec ?? 0).toLocaleString()} pkts/s
                         </td>
                         <td className="py-3 px-4">
                           <span

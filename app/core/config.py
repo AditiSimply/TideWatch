@@ -88,7 +88,10 @@ class Settings(BaseSettings):
         """
         Ensures the database URL uses an async driver:
         asyncpg for PostgreSQL/Neon, aiosqlite for SQLite.
-        Strips sslmode from the URL string (asyncpg handles it via connect_args).
+
+        Strips libpq-specific query params (sslmode, channel_binding, etc.)
+        that asyncpg does not accept; SSL is handled via connect_args in
+        session.py instead.
         """
         url = self.DATABASE_URL
         if url.startswith("postgres://"):
@@ -97,10 +100,19 @@ class Settings(BaseSettings):
             url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
         elif url.startswith("sqlite://") and not url.startswith("sqlite+aiosqlite://"):
             url = url.replace("sqlite://", "sqlite+aiosqlite://", 1)
-        # Strip sslmode=require from URL (handled via connect_args in session.py)
-        if "sslmode=" in url:
+
+        # Drop query params that asyncpg rejects (Neon appends these).
+        if "?" in url:
             import re
-            url = re.sub(r"[?&]sslmode=[^&]*", "", url).rstrip("?&")
+            base, _, query = url.partition("?")
+            kept = [
+                kv
+                for kv in query.split("&")
+                if kv and not kv.lower().startswith(
+                    ("sslmode=", "channel_binding=", "ssl=", "uselibpqcompat=")
+                )
+            ]
+            url = base + ("?" + "&".join(kept) if kept else "")
         return url
 
     @property
